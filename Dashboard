@@ -1,0 +1,7 @@
+!pip install pyngrok # Install pyngrok if you haven't already
+from pyngrok import ngrok # Import the ngrok module
+
+!streamlit run app.py &>/dev/null&
+ngrok.set_auth_token("2wCivC14NEGZe5IUUH7OlldqSat_5Q5vWTMiQ8TqQu5Px6JQX")
+public_url = ngrok.connect(addr="8501") # Change port='8501' to port=8501
+print("Akses Dashboard via:", public_url)
