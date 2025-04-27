@@ -1,0 +1,50 @@
+from fastapi import FastAPI
+from pydantic import BaseModel
+import joblib
+import numpy as np
+
+# Load model dan scaler
+scaler = joblib.load('scaler.pkl')
+model = joblib.load('best_model.pkl')
+
+# Inisialisasi FastAPI
+app = FastAPI(
+    title="Stroke Risk Prediction API",
+    description="API untuk memprediksi risiko stroke berdasarkan faktor kesehatan dan gaya hidup",
+    version="1.0"
+)
+
+# Skema input dengan Pydantic
+class StrokeInput(BaseModel):
+    age: float
+    hypertension: int
+    heart_disease: int
+    avg_glucose_level: float
+    bmi: float
+    smoking_status: int  # Misal 0 = tidak merokok, 1 = perokok ringan, 2 = perokok berat
+
+# Endpoint utama untuk prediksi
+@app.post("/predict")
+def predict_stroke(data: StrokeInput):
+    # Ambil data dan ubah jadi array
+    input_array = np.array([
+        data.age,
+        data.hypertension,
+        data.heart_disease,
+        data.avg_glucose_level,
+        data.bmi,
+        data.smoking_status
+    ]).reshape(1, -1)
+    
+    # Preprocessing: scaling
+    input_scaled = scaler.transform(input_array)
+    
+    # Prediksi
+    prediction = model.predict(input_scaled)
+    prediction_proba = model.predict_proba(input_scaled)[0][1]  # Probabilitas stroke
+
+    # Output hasil
+    return {
+        "stroke_risk_prediction": int(prediction[0]),  # 0 = Tidak berisiko, 1 = Berisiko
+        "stroke_probability": round(float(prediction_proba), 4)
+    }
