@@ -1,0 +1,187 @@
+# -*- coding: utf-8 -*-
+%%writefile app.py
+# =============================================
+# 2. IMPORT LIBRARY
+# =============================================
+import streamlit as st
+import pandas as pd
+import numpy as np
+import plotly.express as px
+import plotly.graph_objects as go
+from sklearn.preprocessing import StandardScaler
+import joblib
+from pyngrok import ngrok
+
+# =============================================
+# 3. LOAD DATA & MODEL
+# =============================================
+@st.cache_data
+def load_data():
+    df = pd.read_csv('/content/stroke_cleaned_data.csv')
+    return df
+
+@st.cache_resource
+def load_model():
+    model = joblib.load('/content/best_model.pkl')
+    scaler = joblib.load('/content/scaler.pkl')
+    return model, scaler
+
+df = load_data()
+model, scaler = load_model()
+
+# =============================================
+# 4. BUILD DASHBOARD
+# =============================================
+def main():
+    # Konfigurasi Halaman (Moved to the very beginning)
+    st.set_page_config(
+        page_title="Stroke Risk Dashboard",
+        layout="wide",
+        page_icon="❤️"
+    )
+
+    # Header
+    st.title("🩺 Stroke Risk Analysis Dashboard")
+    st.markdown("---")
+
+    # ====================
+    # SECTION 1: KEY METRICS
+    # ====================
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        total_patients = len(df)
+        st.metric("Total Pasien", f"{total_patients:,}")
+
+    with col2:
+        stroke_rate = df['stroke'].mean() * 100
+        st.metric("Stroke Rate", f"{stroke_rate:.1f}%")
+
+    with col3:
+        avg_age = df['age'].mean()
+        st.metric("Rata-Rata Usia", f"{avg_age:.1f} Tahun")
+
+    with col4:
+        high_risk = len(df[(df['avg_glucose_level'] > 200) & (df['hypertension'] == 1)])
+        st.metric("Pasien Risiko Tinggi", high_risk)
+
+    st.markdown("---")
+
+    # ====================
+    # SECTION 2: INTERACTIVE FILTERS
+    # ====================
+    st.sidebar.header("🔍 Filter Data")
+    age_range = st.sidebar.slider(
+        "Rentang Usia",
+        min_value=int(df['age'].min()),
+        max_value=int(df['age'].max()),
+        value=(30, 70)
+    )
+    hypertension_filter = st.sidebar.selectbox(
+        "Status Hipertensi",
+        options=['All', 'Ya', 'Tidak']
+    )
+
+    # ====================
+    # SECTION 3: VISUALISASI DATA
+    # ====================
+    # Filter Data
+    filtered_df = df[
+        (df['age'] >= age_range[0]) &
+        (df['age'] <= age_range[1])
+    ]
+
+    if hypertension_filter != 'All':
+        filtered_df = filtered_df[filtered_df['hypertension'] == (1 if hypertension_filter == 'Ya' else 0)]
+
+    # Row 1
+    col1, col2 = st.columns(2)
+    with col1:
+        # Pie Chart: Distribusi Stroke
+        fig1 = px.pie(
+            filtered_df,
+            names='stroke',
+            title='Distribusi Kasus Stroke',
+            hole=0.4,
+            color_discrete_sequence=['#2ecc71', '#e74c3c']
+        )
+        st.plotly_chart(fig1, use_container_width=True)
+
+    with col2:
+        # Bar Chart: Faktor Risiko
+        risk_factors = filtered_df[['hypertension', 'heart_disease', 'stroke']].mean().reset_index()
+        risk_factors.columns = ['Faktor', 'Persentase']
+
+        fig2 = px.bar(
+            risk_factors,
+            x='Faktor',
+            y='Persentase',
+            title='Persentase Faktor Risiko',
+            color='Faktor',
+            color_discrete_sequence=px.colors.qualitative.Pastel
+        )
+        st.plotly_chart(fig2, use_container_width=True)
+
+    # Row 2
+    col1, col2 = st.columns(2)
+    with col1:
+        # Scatter Plot: Usia vs Glukosa
+        fig3 = px.scatter(
+            filtered_df,
+            x='age',
+            y='avg_glucose_level',
+            color='stroke',
+            title='Hubungan Usia vs Kadar Glukosa',
+            trendline="lowess",
+            color_discrete_sequence=['#3498db', '#e74c3c']
+        )
+        st.plotly_chart(fig3, use_container_width=True)
+
+    with col2:
+        # Heatmap: Korelasi
+        corr_matrix = filtered_df.corr()
+        fig4 = px.imshow(
+            corr_matrix,
+            text_auto=".2f",
+            title='Matriks Korelasi',
+            color_continuous_scale='Blues'
+        )
+        st.plotly_chart(fig4, use_container_width=True)
+
+    st.markdown("---")
+
+    # ====================
+    # SECTION 4: PREDIKSI REAL-TIME
+    # ====================
+    st.header("🎯 Prediksi Risiko Stroke")
+
+    with st.form("prediction_form"):
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            age = st.number_input("Usia", 0, 100)
+            glucose = st.number_input("Kadar Glukosa (mg/dL)", 50, 300)
+
+        with col2:
+            bmi = st.number_input("BMI", 10.0, 50.0)
+            hypertension = st.selectbox("Hipertensi", [0, 1])
+
+        with col3:
+            heart_disease = st.selectbox("Penyakit Jantung", [0, 1])
+            smoking = st.selectbox("Status Merokok", [0, 1, 2])
+
+        submitted = st.form_submit_button("Prediksi")
+
+        if submitted:
+            input_data = scaler.transform([[age, hypertension, heart_disease, glucose, bmi, smoking]])
+            proba = model.predict_proba(input_data)[0][1]
+
+            if proba > 0.5:
+                st.error(f"Risiko Tinggi ({proba*100:.1f}%)")
+            else:
+                st.success(f"Risiko Rendah ({proba*100:.1f}%)")
+
+# =============================================
+# 5. RUN & DEPLOY
+# =============================================
+if __name__ == '__main__':
+    main()
